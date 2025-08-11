@@ -726,83 +726,36 @@ static NSInteger pick_objc_alert_style(PickMessageStyle style) {
 
 static PickButtonResult pick_objc_button_result(NSInteger response,
                                                 PickButtonType buttons) {
-    // Log the raw input values
-    printf("=== pick_objc_button_result called ===\n");
-    printf("Raw response value: %ld\n", (long)response);
-    printf("Button type: %d", buttons);
-    
-    // Log the button type name for clarity
+
+  if (response == NSAlertFirstButtonReturn) {
     switch (buttons) {
     case PICK_BUTTON_OK:
-        printf(" (PICK_BUTTON_OK)\n");
-        break;
+      return PICK_RESULT_OK;
     case PICK_BUTTON_OK_CANCEL:
-        printf(" (PICK_BUTTON_OK_CANCEL)\n");
-        break;
+      return PICK_RESULT_OK;
     case PICK_BUTTON_YES_NO:
-        printf(" (PICK_BUTTON_YES_NO)\n");
-        break;
+      return PICK_RESULT_YES;
     case PICK_BUTTON_YES_NO_CANCEL:
-        printf(" (PICK_BUTTON_YES_NO_CANCEL)\n");
-        break;
-    default:
-        printf(" (UNKNOWN)\n");
-        break;
+      return PICK_RESULT_YES;
     }
-    
-    // Log the expected NSAlert constants
-    printf("Expected constants: First=%ld, Second=%ld, Third=%ld\n",
-           (long)NSAlertFirstButtonReturn,
-           (long)NSAlertSecondButtonReturn,
-           (long)NSAlertThirdButtonReturn);
-    
-    if (response == NSAlertFirstButtonReturn) {
-        printf("Matched: NSAlertFirstButtonReturn\n");
-        switch (buttons) {
-        case PICK_BUTTON_OK:
-            printf("Returning: PICK_RESULT_OK\n");
-            return PICK_RESULT_OK;
-        case PICK_BUTTON_OK_CANCEL:
-            printf("Returning: PICK_RESULT_OK\n");
-            return PICK_RESULT_OK;
-        case PICK_BUTTON_YES_NO:
-            printf("Returning: PICK_RESULT_YES\n");
-            return PICK_RESULT_YES;
-        case PICK_BUTTON_YES_NO_CANCEL:
-            printf("Returning: PICK_RESULT_YES\n");
-            return PICK_RESULT_YES;
-        }
-    } else if (response == NSAlertSecondButtonReturn) {
-        printf("Matched: NSAlertSecondButtonReturn\n");
-        switch (buttons) {
-        case PICK_BUTTON_OK:
-            printf("WARNING: Second button on OK-only dialog\n");
-            printf("Returning: PICK_RESULT_CLOSED\n");
-            return PICK_RESULT_CLOSED;
-        case PICK_BUTTON_OK_CANCEL:
-            printf("Returning: PICK_RESULT_CANCEL\n");
-            return PICK_RESULT_CANCEL;
-        case PICK_BUTTON_YES_NO:
-            printf("Returning: PICK_RESULT_NO\n");
-            return PICK_RESULT_NO;
-        case PICK_BUTTON_YES_NO_CANCEL:
-            printf("Returning: PICK_RESULT_NO\n");
-            return PICK_RESULT_NO;
-        }
-    } else if (response == NSAlertThirdButtonReturn) {
-        printf("Matched: NSAlertThirdButtonReturn\n");
-        if (buttons == PICK_BUTTON_YES_NO_CANCEL) {
-            printf("Returning: PICK_RESULT_CANCEL\n");
-            return PICK_RESULT_CANCEL;
-        }
-        printf("WARNING: Third button for non-3-button dialog type %d\n", buttons);
-        printf("Returning: PICK_RESULT_CLOSED\n");
-        return PICK_RESULT_CLOSED;
+  } else if (response == NSAlertSecondButtonReturn) {
+    switch (buttons) {
+    case PICK_BUTTON_OK:
+      return PICK_RESULT_CLOSED;
+    case PICK_BUTTON_OK_CANCEL:
+      return PICK_RESULT_CANCEL;
+    case PICK_BUTTON_YES_NO:
+      return PICK_RESULT_NO;
+    case PICK_BUTTON_YES_NO_CANCEL:
+      return PICK_RESULT_NO;
     }
-    
-    printf("No match found - response %ld doesn't match any expected values\n", (long)response);
-    printf("Returning: PICK_RESULT_CLOSED (fallback)\n");
+  } else if (response == NSAlertThirdButtonReturn) {
+    if (buttons == PICK_BUTTON_YES_NO_CANCEL) {
+      return PICK_RESULT_CANCEL;
+    }
     return PICK_RESULT_CLOSED;
+  }
+  return PICK_RESULT_CLOSED;
 }
 
 static void pick_objc_set_alert_icon(id alert, PickIconType icon_type,
