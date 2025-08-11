@@ -728,16 +728,18 @@ static PickButtonResult pick_objc_button_result(NSInteger response,
   if (response == NSAlertFirstButtonReturn) {
     switch (buttons) {
     case PICK_BUTTON_OK:
+      return PICK_RESULT_OK;
     case PICK_BUTTON_OK_CANCEL:
       return PICK_RESULT_OK;
     case PICK_BUTTON_YES_NO:
+      return PICK_RESULT_YES;
     case PICK_BUTTON_YES_NO_CANCEL:
       return PICK_RESULT_YES;
     }
   } else if (response == NSAlertSecondButtonReturn) {
     switch (buttons) {
     case PICK_BUTTON_OK:
-      return PICK_RESULT_OK;
+      return PICK_RESULT_CLOSED;
     case PICK_BUTTON_OK_CANCEL:
       return PICK_RESULT_CANCEL;
     case PICK_BUTTON_YES_NO:
@@ -746,7 +748,10 @@ static PickButtonResult pick_objc_button_result(NSInteger response,
       return PICK_RESULT_NO;
     }
   } else if (response == NSAlertThirdButtonReturn) {
-    return PICK_RESULT_CANCEL;
+    if (buttons == PICK_BUTTON_YES_NO_CANCEL) {
+      return PICK_RESULT_CANCEL;
+    }
+    return PICK_RESULT_CLOSED;
   }
   return PICK_RESULT_CLOSED;
 }
