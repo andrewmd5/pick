@@ -1,85 +1,311 @@
-// pick.h — Cross-platform native dialog library (file pickers, message boxes)
-// Single-header library — define PICK_IMPLEMENTATION in ONE source file before including.
+// # pick.h — cross-platform, non-blocking native dialog library (file pickers, message boxes)
+// 
 //
-// Example:
-//   #define PICK_IMPLEMENTATION
-//   #include "pick.h"
+// ## Table of Contents
 //
-//   void file_picked(const char* path, void* user) {
-//       if (path) printf("Selected: %s\n", path);
-//       else      printf("Cancelled\n");
-//   }
+// - [Quick Start](#quick-start)
+// - [API Reference](#api-reference)
+//   - [File Picker Functions](#file-picker-functions)
+//   - [Message Functions](#message-functions)
+//   - [Callback Signatures](#callback-signatures)
+// - [Data Structures](#data-structures)
+//   - [PickFileOptions](#pickfileoptions)
+//   - [PickFilter](#pickfilter)
+//   - [PickMessageOptions](#pickmessageoptions)
+//   - [PickIcon](#pickicon)
+// - [Platform-Specific Details](#platform-specific-details)
+//   - [macOS](#macos)
+//   - [Windows](#windows)
+//   - [Linux](#linux)
+//   - [Web/Emscripten](#webemscripten)
+// - [Configuration Macros](#configuration-macros)
+// - [Examples](#examples)
+// - [License](#license)
 //
-//   PickFileOptions opts = {0};
-//   opts.title = "Select a file";
-//   pick_file(&opts, file_picked, NULL);
+// ---
 //
-// ─────────────────────────────────────────────────────────────────────────────
-// API OVERVIEW
-//   void pick_file   (const PickFileOptions*,  PickFileCallback,       void*);
-//   void pick_files  (const PickFileOptions*,  PickMultiFileCallback,  void*);
-//   void pick_folder (const PickFileOptions*,  PickFileCallback,       void*);
-//   void pick_folders(const PickFileOptions*,  PickMultiFileCallback,  void*);
-//   void pick_save   (const PickFileOptions*,  PickFileCallback,       void*);
-//   void pick_message(const PickMessageOptions*, PickMessageCallback,  void*);
-//   void pick_alert  (const char* title, const char* msg, void* parent);
-//   void pick_confirm(const char* title, const char* msg, void* parent,
-//                     PickMessageCallback, void*);
+// ## Quick Start
+// 
+// Define `PICK_IMPLEMENTATION` in **ONE** source file before including:
 //
-//   - All APIs are asynchronous (non-blocking) and invoke callbacks on the main thread.
-//   - Strings passed to callbacks are valid only during the callback; copy if needed.
+// ```c
+// #define PICK_IMPLEMENTATION
+// #include "pick.h"
 //
-// ─────────────────────────────────────────────────────────────────────────────
-// PLATFORM NOTES
+// void file_picked(const char* path, void* user) {
+//     if (path) printf("Selected: %s\n", path);
+//     else      printf("Cancelled\n");
+// }
 //
-// [macOS]
-//   - Implemented via NSOpenPanel / NSSavePanel / NSAlert.
-//   - Implementation source file can be .h/.c/.m/.mm but MUST be compiled
-//     as Objective-C or Objective-C++ (e.g. `-x objective-c` when not .m/.mm).
-//   - Link with: -framework AppKit -framework Foundation -lobjc
+// PickFileOptions opts = {0};
+// opts.title = "Select a file";
+// pick_file(&opts, file_picked, NULL);
+// ```
 //
-//   Example CMake (library form):
-//     add_library(pick STATIC pick_impl.c)                 # TU can be .c
-//     target_include_directories(pick PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-//     target_compile_options(pick PRIVATE -x objective-c)  # force ObjC mode
-//     target_link_libraries(pick PUBLIC "-framework AppKit" "-framework Foundation" objc)
+// ---
 //
-//   Parent window (sheets):
-//     Pass an NSWindow* (or object responding to -window) in options->parent_handle
-//     to attach the dialog as a sheet.
+// ## API Reference
 //
-// [Windows]
-//   - Not implemented. Including the implementation will #error.
-//   - Planned: IFileDialog for pickers, Task Dialog for messages.
+// ### File Picker Functions
 //
-// [Linux]
-//   - Not implemented. Including the implementation will #error.
-//   - Planned: xdg-desktop-portal / GTK backend.
+// | Function | Description | Callback Type |
+// |----------|-------------|---------------|
+// | `pick_file()` | Select single file | `PickFileCallback` |
+// | `pick_files()` | Select multiple files | `PickMultiFileCallback` |
+// | `pick_folder()` | Select single folder | `PickFileCallback` |
+// | `pick_folders()` | Select multiple folders | `PickMultiFileCallback` |
+// | `pick_save()` | Save file dialog | `PickFileCallback` |
 //
-// [Web / Emscripten]
-//   - Planned
+// ### Message Functions
 //
-// ─────────────────────────────────────────────────────────────────────────────
-// LICENSE
-//   MIT
+// | Function | Description | Callback Type | Blocking |
+// |----------|-------------|---------------|----------|
+// | `pick_message()` | Custom message dialog | `PickMessageCallback` | No |
+// | `pick_alert()` | Simple alert box | None | No |
+// | `pick_confirm()` | Yes/No confirmation | `PickMessageCallback` | No |
+//
+// ### Callback Signatures
+//
+// | Type | Signature | Notes |
+// |------|-----------|-------|
+// | `PickFileCallback` | `void (*)(const char* path, void* user)` | `path` is NULL on cancel |
+// | `PickMultiFileCallback` | `void (*)(const char** paths, size_t count, void* user)` | `paths` is NULL on cancel |
+// | `PickMessageCallback` | `void (*)(int button_id, void* user)` | `button_id` indicates which button |
+//
+// **Important:** 
+// - All APIs are asynchronous (non-blocking)
+// - Callbacks are invoked on the main thread
+// - String pointers are only valid during callback execution
+//
+// ---
+//
+// ## Data Structures
+//
+// ### PickFileOptions
+//
+// Configuration for file/folder picker dialogs.
+//
+// | Field | Type | Description | Default |
+// |-------|------|-------------|---------|
+// | `title` | `const char*` | Dialog title | Platform default |
+// | `start_path` | `const char*` | Initial directory | Last used / home |
+// | `default_name` | `const char*` | Suggested filename (save only) | Empty |
+// | `filters` | `PickFilter*` | File type filters | All files |
+// | `filter_count` | `size_t` | Number of filters | 0 |
+// | `parent_handle` | `void*` | Parent window handle | NULL |
+//
+// ### PickFilter
+//
+// File type filter specification.
+//
+// | Field | Type | Description | Example |
+// |-------|------|-------------|---------|
+// | `name` | `const char*` | Display name | "Images" |
+// | `patterns` | `const char**` | File patterns | {"*.png", "*.jpg"} |
+// | `pattern_count` | `size_t` | Number of patterns | 2 |
+//
+// ### PickMessageOptions
+//
+// Configuration for message dialogs.
+//
+// | Field | Type | Description | Default |
+// |-------|------|-------------|---------|
+// | `title` | `const char*` | Dialog title | "Message" |
+// | `message` | `const char*` | Message text | Required |
+// | `buttons` | `const char**` | Button labels | {"OK"} |
+// | `button_count` | `size_t` | Number of buttons | 1 |
+// | `default_button` | `int` | Default button index | 0 |
+// | `cancel_button` | `int` | Cancel button index | -1 |
+// | `icon` | `PickIcon` | Icon type | `PICK_ICON_INFO` |
+// | `parent_handle` | `void*` | Parent window | NULL |
+//
+// ### PickIcon
+//
+// Icon types for message dialogs.
+//
+// | Enum Value | Description | Usage |
+// |------------|-------------|-------|
+// | `PICK_ICON_INFO` | Information | General information |
+// | `PICK_ICON_WARNING` | Warning | Warning messages |
+// | `PICK_ICON_ERROR` | Error | Error messages |
+// | `PICK_ICON_QUESTION` | Question | Yes/No questions |
+//
+// ---
+//
+// ## Platform-Specific Details
+//
+// ### macOS
+//
+// **Status:** Implemented  
+// **Backend:** NSOpenPanel, NSSavePanel, NSAlert
+//
+// #### Build Requirements
+//
+// | Requirement | Value |
+// |-------------|-------|
+// | Compiler flags | `-x objective-c` (for .c/.h files) |
+// | Frameworks | `-framework Foundation` |
+//
+// #### CMake Example
+//
+// ```cmake
+// add_library(pick STATIC pick_impl.c)
+// target_include_directories(pick PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+// target_compile_options(pick PRIVATE -x objective-c)
+// target_link_libraries(pick PUBLIC 
+//     "-framework Foundation" 
+//     objc)
+// ```
+//
+// #### Sheet Attachment
+//
+// To attach dialog as sheet, pass `NSWindow*` in `options->parent_handle`.
+//
+// ### Windows
+//
+// **Status:** Not implemented  
+// **Planned Backend:** IFileDialog, TaskDialog
+//
+// Including the implementation will trigger `#error`.
+//
+// ### Linux
+//
+// **Status:** Not implemented  
+// **Planned Backend:** xdg-desktop-portal, GTK
+//
+// Including the implementation will trigger `#error`.
+//
+// ### Web/Emscripten
+//
+// **Status:** Implemented  
+// **Backend:** File System Access API, HTML5
+//
+// #### Build Requirements
+//
+// ```bash
+// emcc main.c -DPICK_IMPLEMENTATION \
+//   -sEXPORTED_FUNCTIONS='["_pick__deliver_single","_pick__deliver_multi_lines","_pick__deliver_msg","_main"]' \
+//   -sEXPORTED_RUNTIME_METHODS='["ccall"]' \
+//   -sALLOW_MEMORY_GROWTH=1 \
+//   -o app.html
+// ```
+//
+// #### File System Paths
+//
+// | Operation | Default Path | Description |
+// |-----------|--------------|-------------|
+// | File import | `/picked/` | Selected files copied here |
+// | Save operations | `/saved/` | Created files go here |
+// | Directory import | `/picked/{structure}/` | Preserves folder hierarchy |
+//
+// #### Extended API
+//
+// ```c
+// void pick_export_file(
+//     const char* src_path, 
+//     const PickFileOptions* options,
+//     void (*callback)(bool success, void* user), 
+//     void* user_data
+// );
+// ```
+//
+// Exports a file from MEMFS to user's downloads folder.
+//
+// ---
+//
+// ## Configuration Macros
+//
+// Define before including the header to customize behavior.
+//
+// | Macro | Description | Default | Platform |
+// |-------|-------------|---------|----------|
+// | `PICK_IMPLEMENTATION` | Enable implementation | undefined | All |
+// | `PICK_EM_MAX_REQUESTS` | Max concurrent operations | 64 | Emscripten |
+// | `PICK_EM_BASE_PICKED` | Import directory | "/picked" | Emscripten |
+// | `PICK_EM_BASE_SAVED` | Save directory | "/saved" | Emscripten |
+//
+// ---
+//
+// ## Examples
+//
+// ### Basic File Selection
+//
+// ```c
+// void on_file_selected(const char* path, void* user) {
+//     if (path) {
+//         printf("Selected: %s\n", path);
+//     }
+// }
+//
+// PickFileOptions opts = {0};
+// opts.title = "Choose Document";
+// pick_file(&opts, on_file_selected, NULL);
+// ```
+//
+// ### File Type Filtering
+//
+// ```c
+// const char* img_patterns[] = {"*.png", "*.jpg", "*.jpeg"};
+// const char* doc_patterns[] = {"*.pdf", "*.doc", "*.docx"};
+//
+// PickFilter filters[] = {
+//     {"Images", img_patterns, 3},
+//     {"Documents", doc_patterns, 3}
+// };
+//
+// PickFileOptions opts = {0};
+// opts.title = "Select File";
+// opts.filters = filters;
+// opts.filter_count = 2;
+// pick_file(&opts, callback, NULL);
+// ```
+//
+// ### Custom Message Dialog
+//
+// ```c
+// void on_button(int button_id, void* user) {
+//     switch(button_id) {
+//         case 0: printf("Save\n"); break;
+//         case 1: printf("Don't Save\n"); break;
+//         case 2: printf("Cancel\n"); break;
+//     }
+// }
+//
+// const char* buttons[] = {"Save", "Don't Save", "Cancel"};
+// PickMessageOptions opts = {0};
+// opts.title = "Unsaved Changes";
+// opts.message = "Do you want to save your changes?";
+// opts.buttons = buttons;
+// opts.button_count = 3;
+// opts.default_button = 0;
+// opts.cancel_button = 2;
+// opts.icon = PICK_ICON_WARNING;
+// pick_message(&opts, on_button, NULL);
+// ```
+//
+// ---
+//
+// ## License
+//
+// MIT
+
 #ifndef PICK_H
 #define PICK_H
-
-#include <stdbool.h>
-#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #if defined(__APPLE__) && defined(__MACH__)
-#define PICK_PLATFORM_MACOS
+  #define PICK_PLATFORM_MACOS
 #elif defined(_WIN32) || defined(_WIN64)
-#define PICK_PLATFORM_WINDOWS
+  #define PICK_PLATFORM_WINDOWS
 #elif defined(__linux__)
-#define PICK_PLATFORM_LINUX
+  #define PICK_PLATFORM_LINUX
+#elif defined(__EMSCRIPTEN__)
+  #define PICK_PLATFORM_EMSCRIPTEN
 #else
-#error "Unsupported platform"
+  #error "Unsupported platform"
 #endif
 
 /// @brief File type filter for file dialogs
@@ -1017,6 +1243,811 @@ void pick_confirm(const char *title, const char *message, void *parent_handle,
 #ifdef PICK_PLATFORM_LINUX
 #error "Linux implementation not yet available"
 #endif
+
+
+#ifdef PICK_PLATFORM_EMSCRIPTEN
+
+#include <emscripten/emscripten.h>
+#include <emscripten/html5.h>
+
+#ifndef PICK_EM_MAX_REQUESTS
+#define PICK_EM_MAX_REQUESTS 64
+#endif
+
+#ifndef PICK_EM_BASE_PICKED
+#define PICK_EM_BASE_PICKED "/picked"
+#endif
+
+#ifndef PICK_EM_BASE_SAVED
+#define PICK_EM_BASE_SAVED "/saved"
+#endif
+
+#define PICK_EM_OK     0
+#define PICK_EM_CANCEL 1
+
+typedef enum {
+  PICK_REQ_NONE = 0,
+  PICK_REQ_OPEN_SINGLE,
+  PICK_REQ_OPEN_MULTI,
+  PICK_REQ_OPEN_DIR_SINGLE,
+  PICK_REQ_OPEN_DIR_MULTI,
+  PICK_REQ_SAVE,
+  PICK_REQ_MESSAGE,
+  PICK_REQ_EXPORT
+} pick_req_kind_t;
+
+typedef void (*PickResultCallback)(bool ok, void* user_data);
+
+typedef struct {
+  pick_req_kind_t       kind;
+  PickFileCallback      single_cb;
+  PickMultiFileCallback multi_cb;
+  PickMessageCallback   msg_cb;
+  PickResultCallback    result_cb; // for EXPORT
+  void*                 user;
+} pick_em_req_t;
+
+static pick_em_req_t g_reqs[PICK_EM_MAX_REQUESTS];
+static int g_next_req_id = 1;
+
+static int pick_alloc_req(void) {
+  for (int tries = 0; tries < PICK_EM_MAX_REQUESTS; tries++) {
+    int id = g_next_req_id++;
+    if (g_next_req_id <= 0) g_next_req_id = 1;
+    if (id <= 0 || id >= PICK_EM_MAX_REQUESTS) { id = 1; g_next_req_id = 2; }
+    if (g_reqs[id].kind == PICK_REQ_NONE) return id;
+  }
+  return 0;
+}
+static void pick_clear_req(int id) { if (id > 0 && id < PICK_EM_MAX_REQUESTS) g_reqs[id] = (pick_em_req_t){0}; }
+
+static void pick_build_accept_string(const PickFileOptions* opts, char* out, size_t cap) {
+  if (!out || cap == 0) return;
+  out[0] = 0;
+  if (!opts || !opts->filters || opts->filter_count <= 0) return;
+
+  size_t used = 0;
+  for (int i = 0; i < opts->filter_count; i++) {
+    const PickFilter* f = &opts->filters[i];
+    for (int j = 0; j < f->extension_count; j++) {
+      const char* ext = f->extensions[j];
+      if (!ext || !*ext) continue;
+      char piece[128];
+      int n = snprintf(piece, sizeof(piece), ".%s", ext);
+      if (n <= 0) continue;
+      if (used > 0 && used + 1 < cap) { out[used++] = ','; out[used] = 0; }
+      if (used + (size_t)n + 1 >= cap) return;
+      memcpy(out + used, piece, (size_t)n);
+      used += (size_t)n;
+      out[used] = 0;
+    }
+  }
+}
+
+static const char* pick_icon_token(PickIconType t) {
+  switch (t) {
+    case PICK_ICON_DEFAULT:   return "default";
+    case PICK_ICON_CUSTOM:    return "custom";
+    case PICK_ICON_APP:       return "app";
+    case PICK_ICON_TRASH:     return "trash";
+    case PICK_ICON_FOLDER:    return "folder";
+    case PICK_ICON_DOCUMENT:  return "document";
+    case PICK_ICON_LOCKED:    return "locked";
+    case PICK_ICON_UNLOCKED:  return "unlocked";
+    case PICK_ICON_NETWORK:   return "network";
+    case PICK_ICON_USER:      return "user";
+    case PICK_ICON_CAUTION:   return "caution";
+    case PICK_ICON_ERROR:     return "error";
+    case PICK_ICON_STOP:      return "stop";
+    case PICK_ICON_INVALID:   return "invalid";
+    default:                  return "default";
+  }
+}
+
+
+EM_JS(void, pick_js_init_buckets, (), {
+  if (typeof FS === "undefined") return;
+  try { if (!FS.analyzePath("/picked").exists) FS.mkdir("/picked"); } catch (e) { console.error("pick: /picked mkdir", e); }
+  try { if (!FS.analyzePath("/saved").exists)  FS.mkdir("/saved");  } catch (e) { console.error("pick: /saved mkdir", e); }
+});
+
+// WASM callbacks via ccall; accept wasm pointer *or* JS string
+EM_JS(void, pick__call_deliver_single, (int id, const char* c_path), {
+  var c = (Module && Module.ccall) ? Module.ccall : (typeof ccall !== "undefined" ? ccall : null);
+  if (!c) { console.error("pick: ccall missing"); return; }
+  function S(x){ return (typeof x === "number") ? (x ? UTF8ToString(x) : null) : (x || null); }
+  c("pick__deliver_single","void",["number","string"],[id, S(c_path)]);
+});
+EM_JS(void, pick__call_deliver_multi_lines, (int id, const char* c_joined), {
+  var c = (Module && Module.ccall) ? Module.ccall : (typeof ccall !== "undefined" ? ccall : null);
+  if (!c) { console.error("pick: ccall missing"); return; }
+  function S(x){ return (typeof x === "number") ? (x ? UTF8ToString(x) : "") : (x || ""); }
+  c("pick__deliver_multi_lines","void",["number","string"],[id, S(c_joined)]);
+});
+EM_JS(void, pick__call_deliver_msg, (int id, int code), {
+  var c = (Module && Module.ccall) ? Module.ccall : (typeof ccall !== "undefined" ? ccall : null);
+  if (!c) { console.error("pick: ccall missing"); return; }
+  c("pick__deliver_msg","void",["number","number"],[id, code]);
+});
+
+EM_JS(void, pick_js_create_dialog, (int req_id, const char* role_label_c, const char* title_c,
+                                    const char* message_c, const char* kind_c,
+                                    int with_icon, const char* icon_token_c, const char* custom_url_c),
+{
+  try {
+    function S(x){ return (typeof x === "number") ? (x ? UTF8ToString(x) : "") : (x || ""); }
+    var roleLabel = S(role_label_c);
+    var title = S(title_c);
+    var msg   = S(message_c);
+    var kind  = S(kind_c);
+    var iconToken = S(icon_token_c) || "default";
+    var customURL = S(custom_url_c);
+
+    var overlay = document.createElement("div");
+    overlay.setAttribute("data-pick", "overlay");
+    overlay.setAttribute("data-pick-kind", kind);
+    overlay.setAttribute("data-req-id", String(req_id));
+    overlay.tabIndex = -1;
+
+    var dialog = document.createElement("div");
+    dialog.setAttribute("data-pick", "dialog");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    var titleId = "pick-title-" + Date.now() + "-" + Math.random().toString().slice(2);
+    var msgId   = "pick-msg-"   + Date.now() + "-" + Math.random().toString().slice(2);
+    dialog.setAttribute("aria-labelledby", titleId);
+    dialog.setAttribute("aria-describedby", msgId);
+    if (roleLabel) dialog.setAttribute("aria-label", roleLabel);
+
+    var head = document.createElement("div");
+    head.setAttribute("data-pick", "header");
+
+    if (with_icon) {
+      var icoWrap = document.createElement("div");
+      icoWrap.setAttribute("data-pick", "icon");
+      icoWrap.setAttribute("data-icon", iconToken);
+      if (customURL) {
+        var img = document.createElement("img");
+        img.setAttribute("alt", "");
+        img.setAttribute("data-pick", "icon-image");
+        img.src = customURL;
+        icoWrap.appendChild(img);
+      }
+      head.appendChild(icoWrap);
+    }
+
+    var h = document.createElement("div");
+    h.id = titleId;
+    h.setAttribute("data-pick", "title");
+    h.textContent = title || "";
+    head.appendChild(h);
+
+    var body = document.createElement("div");
+    body.id = msgId;
+    body.setAttribute("data-pick", "message");
+    body.textContent = msg || "";
+
+    var actions = document.createElement("div");
+    actions.setAttribute("data-pick", "actions");
+
+    dialog.appendChild(head);
+    dialog.appendChild(body);
+    dialog.appendChild(actions);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+  } catch (e) { console.error("pick_js_create_dialog failed", e); }
+});
+
+EM_JS(void, pick_js_append_action, (const char* label_c, const char* action_c), {
+  try {
+    function S(x){ return (typeof x === "number") ? (x ? UTF8ToString(x) : "") : (x || ""); }
+    var label  = S(label_c);
+    var action = S(action_c);
+    var overlay = document.querySelector('[data-pick="overlay"]:last-of-type');
+    if (!overlay) throw new Error("no overlay");
+    var actions = overlay.querySelector('[data-pick="actions"]');
+    var btn = document.createElement("button");
+    btn.setAttribute("type", "button");
+    btn.setAttribute("data-pick", "button");
+    btn.setAttribute("data-action", action);
+    btn.textContent = label;
+    actions.appendChild(btn);
+  } catch (e) { console.error("pick_js_append_action failed", e); }
+});
+
+EM_JS(void, pick_js_bind_alert_handlers, (int req_id, int ok_code), {
+  try {
+    var overlay = document.querySelector('[data-pick="overlay"]:last-of-type');
+    if (!overlay) throw new Error("no overlay");
+    var actions = overlay.querySelector('[data-pick="actions"]');
+    var ok = actions.querySelector('[data-action="ok"]') || actions.querySelector("button");
+    if (!ok) throw new Error("no ok button");
+    ok.addEventListener("click", function () {
+      overlay.remove();
+      pick__call_deliver_msg(req_id, ok_code);
+    }, { once: true });
+    ok.focus();
+  } catch (e) { console.error("pick_js_bind_alert_handlers failed", e); }
+});
+EM_JS(void, pick_js_bind_confirm_handlers, (int req_id, int ok_code, int cancel_code), {
+  try {
+    var overlay = document.querySelector('[data-pick="overlay"]:last-of-type');
+    if (!overlay) throw new Error("no overlay");
+    var actions = overlay.querySelector('[data-pick="actions"]');
+    var ok = actions.querySelector('[data-action="ok"]');
+    var cancel = actions.querySelector('[data-action="cancel"]');
+    if (!ok || !cancel) throw new Error("missing buttons");
+    ok.addEventListener("click", function () {
+      overlay.remove();
+      pick__call_deliver_msg(req_id, ok_code);
+    }, { once: true });
+    cancel.addEventListener("click", function () {
+      overlay.remove();
+      pick__call_deliver_msg(req_id, cancel_code);
+    }, { once: true });
+    cancel.focus();
+  } catch (e) { console.error("pick_js_bind_confirm_handlers failed", e); }
+});
+
+
+EM_JS(void, pick_js_import_files_to_memfs, (const char* base_c, int req_id, int is_multi), {
+  (async function(){
+    try {
+      function S(x){ return (typeof x === "number") ? (x ? UTF8ToString(x) : "") : (x || ""); }
+      if (typeof FS === "undefined") { pick__call_deliver_single(req_id, 0); return; }
+      var base = S(base_c) || "/picked";
+      try { if (!FS.analyzePath(base).exists) FS.mkdir(base); } catch (e) {}
+
+      var chosen = (Module.__pickChosen || []);
+      if (!chosen.length) { pick__call_deliver_single(req_id, 0); return; }
+
+      var out = [];
+      for (var j = 0; j < chosen.length; j++) {
+        var f = chosen[j].file;
+        var rel = chosen[j].rel;
+        var parts = rel.split("/").filter(Boolean);
+        var dir = base;
+        for (var k = 0; k < Math.max(0, parts.length - 1); k++) {
+          dir = dir + "/" + parts[k];
+          try { if (!FS.analyzePath(dir).exists) FS.mkdir(dir); } catch (e) {}
+        }
+        var full = base + "/" + rel;
+        var ab = await f.arrayBuffer();
+        FS.writeFile(full, new Uint8Array(ab));
+        out.push(full);
+      }
+
+      if (is_multi) {
+        pick__call_deliver_multi_lines(req_id, out.join("\n"));
+      } else {
+        pick__call_deliver_single(req_id, out.length ? out[0] : 0);
+      }
+    } catch (e) {
+      console.error("pick_js_import_files_to_memfs failed", e);
+      pick__call_deliver_single(req_id, 0);
+    } finally {
+      Module.__pickChosen = [];
+    }
+  })();
+});
+
+
+EM_JS(void, pick_js_open, (int req_id, const char* title_c,
+                           int allow_dirs, int allow_files, int allow_multiple,
+                           const char* accept_c,
+                           int with_icon, const char* icon_token_c, const char* custom_url_c),
+{
+  (async function() {
+    try {
+      function S(x){ return (typeof x === "number") ? (x ? UTF8ToString(x) : "") : (x || ""); }
+      var title  = S(title_c);
+      var accept = S(accept_c);
+      var icon   = S(icon_token_c) || (allow_dirs ? "folder" : "document");
+      var custom = S(custom_url_c);
+
+      var role = allow_dirs ? "Choose Folder" : (allow_multiple ? "Choose Files" : "Choose File");
+      var msg  = allow_dirs ? "Select a folder." : (allow_multiple ? "Select one or more files." : "Select a file.");
+      pick_js_create_dialog(req_id, role, title, msg, "open", with_icon, icon, custom);
+
+      var overlay = document.querySelector('[data-pick="overlay"]:last-of-type');
+      var dialog  = overlay.querySelector('[data-pick="dialog"]');
+
+      // UI row
+      var row  = document.createElement("div");
+      row.setAttribute("data-pick", "row");
+
+      var browse = document.createElement("button");
+      browse.setAttribute("type", "button");
+      browse.setAttribute("data-pick", "file-button");
+      browse.textContent = allow_dirs ? "Browse Folders…" : "Browse…";
+
+      var summary = document.createElement("div");
+      summary.setAttribute("data-pick", "summary");
+      summary.textContent = "No selection";
+
+      row.appendChild(browse);
+      row.appendChild(summary);
+
+      var list = document.createElement("div");
+      list.setAttribute("data-pick", "file-list");
+
+      dialog.insertBefore(row, dialog.querySelector('[data-pick="actions"]'));
+      dialog.insertBefore(list, dialog.querySelector('[data-pick="actions"]'));
+
+      // Actions
+      pick_js_append_action("Cancel", "cancel");
+      pick_js_append_action("Import", "ok");
+
+      var actions = dialog.querySelector('[data-pick="actions"]');
+      var ok     = actions.querySelector('[data-action="ok"]');
+      var cancel = actions.querySelector('[data-action="cancel"]');
+
+      // Selection state (can browse multiple times)
+      Module.__pickChosen = []; // [{ file: File, rel: string }]
+
+      function renderList() {
+        list.replaceChildren();
+        var chosen = Module.__pickChosen || [];
+        if (!chosen.length) { summary.textContent = "No selection"; return; }
+        summary.textContent = String(chosen.length) + " selected";
+        var ul = document.createElement("ul");
+        ul.setAttribute("data-pick", "file-items");
+        for (var i = 0; i < chosen.length; i++) {
+          var li = document.createElement("li");
+          li.setAttribute("data-pick", "file-item");
+          li.textContent = chosen[i].rel;
+          ul.appendChild(li);
+        }
+        list.appendChild(ul);
+      }
+
+      function extTypesFromAccept(str) {
+        if (!str) return undefined;
+        var exts = str.split(",").map(function(s){return s.trim();}).filter(Boolean);
+        if (!exts.length) return undefined;
+        return [{ description: "Allowed", accept: { "*/*": exts } }];
+      }
+
+      async function browseFSA() {
+        try {
+          if (allow_dirs) {
+            const dir = await window.showDirectoryPicker({ mode: "read" });
+            // recursive walk
+            async function* walk(rootHandle, prefix) {
+              for await (const [name, handle] of rootHandle.entries()) {
+                const rel = prefix ? (prefix + "/" + name) : name;
+                if (handle.kind === "file") {
+                  const file = await handle.getFile();
+                  file._rel = rel;
+                  yield file;
+                } else if (handle.kind === "directory") {
+                  yield* walk(handle, rel);
+                }
+              }
+            }
+            for await (const f of walk(dir, "")) {
+              Module.__pickChosen.push({ file: f, rel: f._rel || f.name });
+            }
+          } else {
+            const picked = await window.showOpenFilePicker({
+              multiple: !!allow_multiple,
+              excludeAcceptAllOption: false,
+              types: extTypesFromAccept(accept)
+            });
+            for (const h of picked) {
+              const f = await h.getFile();
+              Module.__pickChosen.push({ file: f, rel: f.name });
+            }
+          }
+          renderList();
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            // user canceled browse; ignore
+          } else {
+            console.error("pick: FSA browse failed", err);
+          }
+        }
+      }
+
+      function browseInput() {
+        var input = document.createElement("input");
+        input.type = "file";
+        input.hidden = true;
+        if (allow_dirs && !allow_files) { input.setAttribute("webkitdirectory", ""); input.setAttribute("directory", ""); }
+        if (!allow_dirs && allow_files) {
+          if (allow_multiple) input.multiple = true;
+          if (accept && accept.length) input.accept = accept;
+        }
+        document.body.appendChild(input);
+        input.addEventListener("change", function(){
+          var files = Array.from(input.files || []);
+          for (var i = 0; i < files.length; i++) {
+            var f = files[i];
+            var rel = (f.webkitRelativePath && f.webkitRelativePath.length) ? f.webkitRelativePath : f.name;
+            Module.__pickChosen.push({ file: f, rel: rel });
+          }
+          renderList();
+          setTimeout(function(){ try{ input.remove(); }catch(_){} }, 0);
+        }, { once: true });
+        input.click();
+      }
+
+      var canFSA = (typeof window !== "undefined") &&
+                   ((allow_dirs && !!window.showDirectoryPicker) ||
+                    (!allow_dirs && !!window.showOpenFilePicker));
+
+      browse.addEventListener("click", function(){
+        if (canFSA) browseFSA(); else browseInput();
+      });
+
+      cancel.addEventListener("click", function(){
+        Module.__pickChosen = [];
+        overlay.remove();
+        pick__call_deliver_single(req_id, 0);
+      }, { once: true });
+
+      ok.addEventListener("click", function(){
+        overlay.remove();
+        // IMPORTANT: Only treat as multi if the API actually requested multi
+        var is_multi = !!allow_multiple;
+        pick_js_import_files_to_memfs("/picked", req_id, is_multi ? 1 : 0);
+      }, { once: true });
+
+      browse.focus();
+    } catch (e) { console.error("pick_js_open failed", e); pick__call_deliver_single(req_id, 0); }
+  })();
+});
+
+EM_JS(void, pick_js_save, (int req_id, const char* title_c, const char* suggested_c,
+                           int with_icon, const char* icon_token_c, const char* custom_url_c),
+{
+  try {
+    function S(x){ return (typeof x === "number") ? (x ? UTF8ToString(x) : "") : (x || ""); }
+    var title     = S(title_c);
+    var suggested = S(suggested_c) || "untitled";
+    var iconTok   = S(icon_token_c) || "document";
+    var custom    = S(custom_url_c);
+
+    pick_js_create_dialog(req_id, "Save As", title, "Choose a file name.", "save",
+                          with_icon, iconTok, custom);
+
+    var overlay = document.querySelector('[data-pick="overlay"]:last-of-type');
+    var dialog  = overlay.querySelector('[data-pick="dialog"]');
+
+    var row = document.createElement("div");
+    row.setAttribute("data-pick", "row");
+
+    var label = document.createElement("label");
+    label.setAttribute("data-pick", "label");
+    label.textContent = "File name";
+
+    var input = document.createElement("input");
+    input.setAttribute("data-pick", "input");
+    input.setAttribute("type", "text");
+    input.setAttribute("autocomplete", "off");
+    input.value = suggested;
+
+    label.appendChild(input);
+    row.appendChild(label);
+    dialog.insertBefore(row, dialog.querySelector('[data-pick="actions"]'));
+
+    pick_js_append_action("Cancel", "cancel");
+    pick_js_append_action("Save", "ok");
+
+    var actions = dialog.querySelector('[data-pick="actions"]');
+    var ok = actions.querySelector('[data-action="ok"]');
+    var cancel = actions.querySelector('[data-action="cancel"]');
+
+    function finalize(pathOrNull) {
+      overlay.remove();
+      pick__call_deliver_single(req_id, pathOrNull ? pathOrNull : 0);
+    }
+
+    ok.addEventListener("click", function () {
+      var name = (input.value || "").trim();
+      if (!name) name = "untitled";
+      var base = "/saved";
+      var full = base + "/" + name;
+
+      if (typeof FS !== "undefined") {
+        try { if (!FS.analyzePath(base).exists) FS.mkdir(base); } catch (e) {}
+        try { if (!FS.analyzePath(full).exists) FS.writeFile(full, new Uint8Array()); } catch (e) {}
+      }
+      finalize(full);
+    }, { once: true });
+
+    cancel.addEventListener("click", function () { finalize(0); }, { once: true });
+
+    input.focus(); input.select();
+  } catch (e) { console.error("pick_js_save failed", e); pick__call_deliver_single(req_id, 0); }
+});
+
+EM_JS(void, pick_js_export, (int req_id, const char* src_c, const char* suggested_c), {
+  (async function(){
+    try {
+      const OK = 0, CANCEL = 1;
+
+      function S(x){ return (typeof x === "number") ? (x ? UTF8ToString(x) : "") : (x || ""); }
+      if (typeof FS === "undefined") { pick__call_deliver_msg(req_id, CANCEL); return; }
+
+      var src = S(src_c);
+      var suggested = S(suggested_c);
+      if (!suggested) {
+        var slash = src.lastIndexOf("/");
+        suggested = (slash >= 0) ? src.slice(slash+1) : "download.bin";
+      }
+      var data = FS.readFile(src, { encoding: "binary" });
+
+      if (typeof window !== "undefined" && typeof window.showSaveFilePicker === "function") {
+        try {
+          var handle = await window.showSaveFilePicker({ suggestedName: suggested });
+          var writable = await handle.createWritable();
+          await writable.write(new Blob([data], { type: "application/octet-stream" }));
+          await writable.close();
+          pick__call_deliver_msg(req_id, OK);
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            pick__call_deliver_msg(req_id, CANCEL);
+          } else {
+            console.error("pick: export failed", err);
+            pick__call_deliver_msg(req_id, CANCEL);
+          }
+        }
+      } else {
+        var blob = new Blob([data], { type: "application/octet-stream" });
+        var url  = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url; a.download = suggested;
+        document.body.appendChild(a); a.click();
+        setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 0);
+        pick__call_deliver_msg(req_id, OK);
+      }
+    } catch (e) {
+      console.error("pick_js_export failed", e);
+      pick__call_deliver_msg(req_id, 1 /* CANCEL */);
+    }
+  })();
+});
+
+EM_JS(char*, pick_js_custom_icon_url, (const char* path_c), {
+  try {
+    function S(x){ return (typeof x === "number") ? (x ? UTF8ToString(x) : "") : (x || ""); }
+    if (typeof FS === "undefined") return 0;
+    var p = S(path_c);
+    if (!p) return 0;
+    if (!FS.analyzePath(p).exists) return 0;
+    var data = FS.readFile(p, { encoding: "binary" });
+    var blob = new Blob([data]);
+    var url  = URL.createObjectURL(blob);
+    var len  = lengthBytesUTF8(url) + 1;
+    var mem  = _malloc(len);
+    stringToUTF8(url, mem, len);
+    return mem;
+  } catch (e) { console.error("pick_js_custom_icon_url failed", e); return 0; }
+});
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+EMSCRIPTEN_KEEPALIVE
+void pick__deliver_single(int id, const char* path /*nullable*/) {
+  if (id <= 0 || id >= PICK_EM_MAX_REQUESTS) return;
+  pick_em_req_t req = g_reqs[id];
+  pick_clear_req(id);
+
+  switch (req.kind) {
+    case PICK_REQ_OPEN_SINGLE:
+    case PICK_REQ_OPEN_DIR_SINGLE:
+    case PICK_REQ_SAVE:
+      if (req.single_cb) req.single_cb(path, req.user);
+      break;
+    case PICK_REQ_OPEN_MULTI:
+    case PICK_REQ_OPEN_DIR_MULTI:
+      if (req.multi_cb) req.multi_cb(NULL, 0, req.user);
+      break;
+    case PICK_REQ_MESSAGE:
+      if (req.msg_cb) req.msg_cb(PICK_RESULT_OK, req.user);
+      break;
+    default: break;
+  }
+}
+
+EMSCRIPTEN_KEEPALIVE
+void pick__deliver_multi_lines(int id, const char* lines /*nullable*/) {
+  if (id <= 0 || id >= PICK_EM_MAX_REQUESTS) return;
+  pick_em_req_t req = g_reqs[id];
+  pick_clear_req(id);
+
+  if (!lines || !*lines) {
+    if (req.multi_cb) req.multi_cb(NULL, 0, req.user);
+    else if (req.single_cb) req.single_cb(NULL, req.user);
+    return;
+  }
+
+  // If this request expects a single result (e.g., pick_folder single), pass only the first path.
+  if ((req.kind == PICK_REQ_OPEN_DIR_SINGLE || req.kind == PICK_REQ_OPEN_SINGLE) && req.single_cb) {
+    const char* nl = strchr(lines, '\n');
+    size_t len = nl ? (size_t)(nl - lines) : strlen(lines);
+    char* first = (char*)malloc(len + 1);
+    if (first) { memcpy(first, lines, len); first[len] = 0; }
+    req.single_cb(first, req.user);
+    if (first) free(first);
+    return;
+  }
+
+  if (!req.multi_cb) { if (req.single_cb) req.single_cb(NULL, req.user); return; }
+
+  int count = 1; for (const char* p = lines; *p; p++) if (*p == '\n') count++;
+  char** arr = (char**)calloc((size_t)count, sizeof(char*));
+  if (!arr) { req.multi_cb(NULL, 0, req.user); return; }
+
+  int idx = 0; const char* start = lines;
+  for (const char* p = lines;; p++) {
+    if (*p == '\n' || *p == '\0') {
+      size_t L = (size_t)(p - start);
+      char* s = (char*)malloc(L + 1);
+      if (s) { memcpy(s, start, L); s[L] = 0; arr[idx++] = s; }
+      if (*p == '\0') break; start = p + 1;
+    }
+  }
+  req.multi_cb((const char**)arr, idx, req.user);
+  for (int i = 0; i < idx; i++) free(arr[i]);
+  free(arr);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void pick__deliver_msg(int id, int result_code) {
+  if (id <= 0 || id >= PICK_EM_MAX_REQUESTS) return;
+  pick_em_req_t req = g_reqs[id];
+  pick_clear_req(id);
+
+  if (req.kind == PICK_REQ_MESSAGE) {
+    if (req.msg_cb) {
+      PickButtonResult r = (result_code == PICK_EM_OK) ? PICK_RESULT_OK : PICK_RESULT_CANCEL;
+      req.msg_cb(r, req.user);
+    }
+    return;
+  }
+  if (req.kind == PICK_REQ_EXPORT) {
+    if (req.result_cb) req.result_cb(result_code == PICK_EM_OK, req.user);
+    return;
+  }
+}
+
+#ifdef __cplusplus
+}
+#endif
+
+
+void pick_file(const PickFileOptions *options, PickFileCallback cb, void *ud) {
+  pick_js_init_buckets();
+  int id = pick_alloc_req(); if (!id) { if (cb) cb(NULL, ud); return; }
+  g_reqs[id] = (pick_em_req_t){ .kind = PICK_REQ_OPEN_SINGLE, .single_cb = cb, .user = ud };
+
+  char accept[512]; pick_build_accept_string(options, accept, sizeof(accept));
+  const char* title = (options && options->title) ? options->title : "";
+
+  pick_js_open(id, title, /*allow_dirs*/0, /*allow_files*/1,
+               (options && options->allow_multiple) ? 1 : 0,
+               accept, /*with_icon*/1, "document", "");
+}
+
+void pick_files(const PickFileOptions *options, PickMultiFileCallback cb, void *ud) {
+  pick_js_init_buckets();
+  int id = pick_alloc_req(); if (!id) { if (cb) cb(NULL, 0, ud); return; }
+  g_reqs[id] = (pick_em_req_t){ .kind = PICK_REQ_OPEN_MULTI, .multi_cb = cb, .user = ud };
+
+  char accept[512]; pick_build_accept_string(options, accept, sizeof(accept));
+  const char* title = (options && options->title) ? options->title : "";
+
+  pick_js_open(id, title, /*dirs*/0, /*files*/1, /*multi*/1,
+               accept, /*with_icon*/1, "document", "");
+}
+
+void pick_folder(const PickFileOptions *options, PickFileCallback cb, void *ud) {
+  pick_js_init_buckets();
+  int id = pick_alloc_req(); if (!id) { if (cb) cb(NULL, ud); return; }
+  g_reqs[id] = (pick_em_req_t){ .kind = PICK_REQ_OPEN_DIR_SINGLE, .single_cb = cb, .user = ud };
+
+  const char* title = (options && options->title) ? options->title : "";
+
+  pick_js_open(id, title, /*dirs*/1, /*files*/0, /*multi*/0,
+               /*accept*/"", /*with_icon*/1, "folder", "");
+}
+
+void pick_folders(const PickFileOptions *options, PickMultiFileCallback cb, void *ud) {
+  pick_js_init_buckets();
+  int id = pick_alloc_req(); if (!id) { if (cb) cb(NULL, 0, ud); return; }
+  g_reqs[id] = (pick_em_req_t){ .kind = PICK_REQ_OPEN_DIR_MULTI, .multi_cb = cb, .user = ud };
+
+  const char* title = (options && options->title) ? options->title : "";
+
+  pick_js_open(id, title, /*dirs*/1, /*files*/0, /*multi*/1,
+               /*accept*/"", /*with_icon*/1, "folder", "");
+}
+
+void pick_save(const PickFileOptions *options, PickFileCallback cb, void *ud) {
+  pick_js_init_buckets();
+  int id = pick_alloc_req(); if (!id) { if (cb) cb(NULL, ud); return; }
+  g_reqs[id] = (pick_em_req_t){ .kind = PICK_REQ_SAVE, .single_cb = cb, .user = ud };
+
+  const char* title     = (options && options->title)        ? options->title        : "";
+  const char* suggested = (options && options->default_name) ? options->default_name : "untitled";
+
+  pick_js_save(id, title, suggested, /*with_icon*/1, "document", "");
+}
+
+void pick_export_file(const char* src_path, const PickFileOptions* options,
+                      PickResultCallback done, void* user) {
+  pick_js_init_buckets();
+  int id = pick_alloc_req(); if (!id) { if (done) done(false, user); return; }
+  g_reqs[id] = (pick_em_req_t){ .kind = PICK_REQ_EXPORT, .result_cb = done, .user = user };
+
+  const char* suggested = (options && options->default_name) ? options->default_name : "";
+  pick_js_export(id, src_path ? src_path : "", suggested);
+}
+
+static const char* pick_message_style_token(PickMessageStyle s) {
+  switch (s) {
+    case PICK_STYLE_WARNING: return "warning";
+    case PICK_STYLE_ERROR:   return "error";
+    case PICK_STYLE_QUESTION:return "question";
+    case PICK_STYLE_INFO:
+    default:                 return "info";
+  }
+}
+void pick_message(const PickMessageOptions *opts, PickMessageCallback cb, void *ud) {
+  int id = pick_alloc_req(); if (!id) { if (cb) cb(PICK_RESULT_CLOSED, ud); return; }
+  g_reqs[id] = (pick_em_req_t){ .kind = PICK_REQ_MESSAGE, .msg_cb = cb, .user = ud };
+
+  const char* title   = (opts && opts->title)   ? opts->title   : "";
+  const char* message = (opts && opts->message) ? opts->message : "";
+  const char* iconTok = pick_icon_token(opts ? opts->icon_type : PICK_ICON_DEFAULT);
+
+  char* custom_url = NULL;
+  if (opts && opts->icon_type == PICK_ICON_CUSTOM && opts->icon_path && *opts->icon_path) {
+    custom_url = pick_js_custom_icon_url(opts->icon_path);
+  }
+
+  PickButtonType btns = opts ? opts->buttons : PICK_BUTTON_OK;
+  if (btns == PICK_BUTTON_OK_CANCEL || btns == PICK_BUTTON_YES_NO || btns == PICK_BUTTON_YES_NO_CANCEL) {
+    pick_js_create_dialog(id, "Confirmation", title, message, "confirm", 1, iconTok, custom_url ? custom_url : "");
+    pick_js_append_action("Cancel", "cancel");
+    pick_js_append_action((btns == PICK_BUTTON_YES_NO || btns == PICK_BUTTON_YES_NO_CANCEL) ? "Yes" : "OK", "ok");
+    pick_js_bind_confirm_handlers(id, /*ok*/PICK_EM_OK, /*cancel*/PICK_EM_CANCEL);
+  } else {
+    pick_js_create_dialog(id, "Alert", title, message, "alert", 1, iconTok, custom_url ? custom_url : "");
+    pick_js_append_action("OK", "ok");
+    pick_js_bind_alert_handlers(id, /*ok*/PICK_EM_OK);
+  }
+
+  if (custom_url) { free(custom_url); }
+}
+
+void pick_alert(const char *title, const char *message, void *parent_handle) {
+  (void)parent_handle;
+  PickMessageOptions o = (PickMessageOptions){0};
+  o.title = title; o.message = message;
+  o.buttons = PICK_BUTTON_OK;
+  o.style = PICK_STYLE_INFO;
+  o.icon_type = PICK_ICON_DEFAULT;
+  pick_message(&o, NULL, NULL);
+}
+
+void pick_confirm(const char *title, const char *message, void *parent_handle,
+                  PickMessageCallback callback, void *user_data) {
+  (void)parent_handle;
+  PickMessageOptions o = (PickMessageOptions){0};
+  o.title = title; o.message = message;
+  o.buttons = PICK_BUTTON_OK_CANCEL;
+  o.style = PICK_STYLE_QUESTION;
+  o.icon_type = PICK_ICON_DEFAULT;
+  pick_message(&o, callback, user_data);
+}
+
+#endif /* PICK_PLATFORM_EMSCRIPTEN */
+
 
 void pick_free(char *path) { free(path); }
 
