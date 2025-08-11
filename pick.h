@@ -710,6 +710,7 @@ static id pick_objc_create_save_panel(const PickFileOptions *options) {
 typedef struct {
   PickMessageCallback callback;
   void *user_data;
+  PickMessageOptions options;
 } pick_message_context;
 
 static NSInteger pick_objc_alert_style(PickMessageStyle style) {
@@ -725,35 +726,83 @@ static NSInteger pick_objc_alert_style(PickMessageStyle style) {
 
 static PickButtonResult pick_objc_button_result(NSInteger response,
                                                 PickButtonType buttons) {
-  if (response == NSAlertFirstButtonReturn) {
+    // Log the raw input values
+    printf("=== pick_objc_button_result called ===\n");
+    printf("Raw response value: %ld\n", (long)response);
+    printf("Button type: %d", buttons);
+    
+    // Log the button type name for clarity
     switch (buttons) {
     case PICK_BUTTON_OK:
-      return PICK_RESULT_OK;
+        printf(" (PICK_BUTTON_OK)\n");
+        break;
     case PICK_BUTTON_OK_CANCEL:
-      return PICK_RESULT_OK;
+        printf(" (PICK_BUTTON_OK_CANCEL)\n");
+        break;
     case PICK_BUTTON_YES_NO:
-      return PICK_RESULT_YES;
+        printf(" (PICK_BUTTON_YES_NO)\n");
+        break;
     case PICK_BUTTON_YES_NO_CANCEL:
-      return PICK_RESULT_YES;
+        printf(" (PICK_BUTTON_YES_NO_CANCEL)\n");
+        break;
+    default:
+        printf(" (UNKNOWN)\n");
+        break;
     }
-  } else if (response == NSAlertSecondButtonReturn) {
-    switch (buttons) {
-    case PICK_BUTTON_OK:
-      return PICK_RESULT_CLOSED;
-    case PICK_BUTTON_OK_CANCEL:
-      return PICK_RESULT_CANCEL;
-    case PICK_BUTTON_YES_NO:
-      return PICK_RESULT_NO;
-    case PICK_BUTTON_YES_NO_CANCEL:
-      return PICK_RESULT_NO;
+    
+    // Log the expected NSAlert constants
+    printf("Expected constants: First=%ld, Second=%ld, Third=%ld\n",
+           (long)NSAlertFirstButtonReturn,
+           (long)NSAlertSecondButtonReturn,
+           (long)NSAlertThirdButtonReturn);
+    
+    if (response == NSAlertFirstButtonReturn) {
+        printf("Matched: NSAlertFirstButtonReturn\n");
+        switch (buttons) {
+        case PICK_BUTTON_OK:
+            printf("Returning: PICK_RESULT_OK\n");
+            return PICK_RESULT_OK;
+        case PICK_BUTTON_OK_CANCEL:
+            printf("Returning: PICK_RESULT_OK\n");
+            return PICK_RESULT_OK;
+        case PICK_BUTTON_YES_NO:
+            printf("Returning: PICK_RESULT_YES\n");
+            return PICK_RESULT_YES;
+        case PICK_BUTTON_YES_NO_CANCEL:
+            printf("Returning: PICK_RESULT_YES\n");
+            return PICK_RESULT_YES;
+        }
+    } else if (response == NSAlertSecondButtonReturn) {
+        printf("Matched: NSAlertSecondButtonReturn\n");
+        switch (buttons) {
+        case PICK_BUTTON_OK:
+            printf("WARNING: Second button on OK-only dialog\n");
+            printf("Returning: PICK_RESULT_CLOSED\n");
+            return PICK_RESULT_CLOSED;
+        case PICK_BUTTON_OK_CANCEL:
+            printf("Returning: PICK_RESULT_CANCEL\n");
+            return PICK_RESULT_CANCEL;
+        case PICK_BUTTON_YES_NO:
+            printf("Returning: PICK_RESULT_NO\n");
+            return PICK_RESULT_NO;
+        case PICK_BUTTON_YES_NO_CANCEL:
+            printf("Returning: PICK_RESULT_NO\n");
+            return PICK_RESULT_NO;
+        }
+    } else if (response == NSAlertThirdButtonReturn) {
+        printf("Matched: NSAlertThirdButtonReturn\n");
+        if (buttons == PICK_BUTTON_YES_NO_CANCEL) {
+            printf("Returning: PICK_RESULT_CANCEL\n");
+            return PICK_RESULT_CANCEL;
+        }
+        printf("WARNING: Third button for non-3-button dialog type %d\n", buttons);
+        printf("Returning: PICK_RESULT_CLOSED\n");
+        return PICK_RESULT_CLOSED;
     }
-  } else if (response == NSAlertThirdButtonReturn) {
-    if (buttons == PICK_BUTTON_YES_NO_CANCEL) {
-      return PICK_RESULT_CANCEL;
-    }
+    
+    printf("No match found - response %ld doesn't match any expected values\n", (long)response);
+    printf("Returning: PICK_RESULT_CLOSED (fallback)\n");
     return PICK_RESULT_CLOSED;
-  }
-  return PICK_RESULT_CLOSED;
 }
 
 static void pick_objc_set_alert_icon(id alert, PickIconType icon_type,
@@ -1182,25 +1231,27 @@ void pick_message(const PickMessageOptions *options,
                   PickMessageCallback callback, void *user_data) {
   pick_objc_run_on_main(^{
     pick_objc_ensure_app_initialized();
-
-    id alert = pick_objc_create_alert(options);
-    id parent_window =
-        pick_objc_window_from_handle(options ? options->parent_handle : NULL);
-
     pick_message_context *ctx =
         (pick_message_context *)malloc(sizeof(pick_message_context));
     ctx->callback = callback;
     ctx->user_data = user_data;
-
+    if (options) {
+      ctx->options = *options;
+    } else {
+      memset(&ctx->options, 0, sizeof(PickMessageOptions));
+      ctx->options.buttons = PICK_BUTTON_OK;
+      ctx->options.style = PICK_STYLE_INFO;
+    }
+    id alert = pick_objc_create_alert(&ctx->options);
+    id parent_window = pick_objc_window_from_handle(ctx->options.parent_handle);
     void (^completion_handler)(NSInteger) = ^(NSInteger response) {
       PickButtonResult result =
-          pick_objc_button_result(response, options->buttons);
+          pick_objc_button_result(response, ctx->options.buttons);
       if (ctx->callback) {
         ctx->callback(result, ctx->user_data);
       }
       free(ctx);
     };
-
     if (parent_window) {
       ((void (*)(id, SEL, id, id))objc_msgSend)(
           alert,
@@ -1267,9 +1318,6 @@ void pick_confirm(const char *title, const char *message, void *parent_handle,
 #define PICK_EM_BASE_SAVED "/saved"
 #endif
 
-#define PICK_EM_OK     0
-#define PICK_EM_CANCEL 1
-
 typedef enum {
   PICK_REQ_NONE = 0,
   PICK_REQ_OPEN_SINGLE,
@@ -1279,34 +1327,35 @@ typedef enum {
   PICK_REQ_SAVE,
   PICK_REQ_MESSAGE,
   PICK_REQ_EXPORT
-} pick_req_kind_t;
+} pick__req_kind_t;
 
 typedef void (*PickResultCallback)(bool ok, void* user_data);
 
 typedef struct {
-  pick_req_kind_t       kind;
+  pick__req_kind_t       kind;
   PickFileCallback      single_cb;
   PickMultiFileCallback multi_cb;
   PickMessageCallback   msg_cb;
-  PickResultCallback    result_cb; // for EXPORT
+  PickResultCallback    result_cb;
   void*                 user;
-} pick_em_req_t;
+  PickButtonType        button_type;
+} pick__em_req_t;
 
-static pick_em_req_t g_reqs[PICK_EM_MAX_REQUESTS];
-static int g_next_req_id = 1;
+static pick__em_req_t g_reqs[PICK_EM_MAX_REQUESTS];
+static int _g_next_req_id = 1;
 
-static int pick_alloc_req(void) {
+static int pick__alloc_req(void) {
   for (int tries = 0; tries < PICK_EM_MAX_REQUESTS; tries++) {
-    int id = g_next_req_id++;
-    if (g_next_req_id <= 0) g_next_req_id = 1;
-    if (id <= 0 || id >= PICK_EM_MAX_REQUESTS) { id = 1; g_next_req_id = 2; }
+    int id = _g_next_req_id++;
+    if (_g_next_req_id <= 0) _g_next_req_id = 1;
+    if (id <= 0 || id >= PICK_EM_MAX_REQUESTS) { id = 1; _g_next_req_id = 2; }
     if (g_reqs[id].kind == PICK_REQ_NONE) return id;
   }
   return 0;
 }
-static void pick_clear_req(int id) { if (id > 0 && id < PICK_EM_MAX_REQUESTS) g_reqs[id] = (pick_em_req_t){0}; }
+static void pick__clear_req(int id) { if (id > 0 && id < PICK_EM_MAX_REQUESTS) g_reqs[id] = (pick__em_req_t){0}; }
 
-static void pick_build_accept_string(const PickFileOptions* opts, char* out, size_t cap) {
+static void pick__build_accept_string(const PickFileOptions* opts, char* out, size_t cap) {
   if (!out || cap == 0) return;
   out[0] = 0;
   if (!opts || !opts->filters || opts->filter_count <= 0) return;
@@ -1329,7 +1378,7 @@ static void pick_build_accept_string(const PickFileOptions* opts, char* out, siz
   }
 }
 
-static const char* pick_icon_token(PickIconType t) {
+static const char* pick__icon_token(PickIconType t) {
   switch (t) {
     case PICK_ICON_DEFAULT:   return "default";
     case PICK_ICON_CUSTOM:    return "custom";
@@ -1349,14 +1398,12 @@ static const char* pick_icon_token(PickIconType t) {
   }
 }
 
-
 EM_JS(void, pick_js_init_buckets, (), {
   if (typeof FS === "undefined") return;
   try { if (!FS.analyzePath("/picked").exists) FS.mkdir("/picked"); } catch (e) { console.error("pick: /picked mkdir", e); }
   try { if (!FS.analyzePath("/saved").exists)  FS.mkdir("/saved");  } catch (e) { console.error("pick: /saved mkdir", e); }
 });
 
-// WASM callbacks via ccall; accept wasm pointer *or* JS string
 EM_JS(void, pick__call_deliver_single, (int id, const char* c_path), {
   var c = (Module && Module.ccall) ? Module.ccall : (typeof ccall !== "undefined" ? ccall : null);
   if (!c) { console.error("pick: ccall missing"); return; }
@@ -1369,10 +1416,10 @@ EM_JS(void, pick__call_deliver_multi_lines, (int id, const char* c_joined), {
   function S(x){ return (typeof x === "number") ? (x ? UTF8ToString(x) : "") : (x || ""); }
   c("pick__deliver_multi_lines","void",["number","string"],[id, S(c_joined)]);
 });
-EM_JS(void, pick__call_deliver_msg, (int id, int code), {
+EM_JS(void, pick__call_deliver_msg, (int id, int button_idx), {
   var c = (Module && Module.ccall) ? Module.ccall : (typeof ccall !== "undefined" ? ccall : null);
   if (!c) { console.error("pick: ccall missing"); return; }
-  c("pick__deliver_msg","void",["number","number"],[id, code]);
+  c("pick__deliver_msg","void",["number","number"],[id, button_idx]);
 });
 
 EM_JS(void, pick_js_create_dialog, (int req_id, const char* role_label_c, const char* title_c,
@@ -1460,40 +1507,27 @@ EM_JS(void, pick_js_append_action, (const char* label_c, const char* action_c), 
   } catch (e) { console.error("pick_js_append_action failed", e); }
 });
 
-EM_JS(void, pick_js_bind_alert_handlers, (int req_id, int ok_code), {
+EM_JS(void, pick_js_bind_message_handlers, (int req_id, int button_count), {
   try {
     var overlay = document.querySelector('[data-pick="overlay"]:last-of-type');
     if (!overlay) throw new Error("no overlay");
     var actions = overlay.querySelector('[data-pick="actions"]');
-    var ok = actions.querySelector('[data-action="ok"]') || actions.querySelector("button");
-    if (!ok) throw new Error("no ok button");
-    ok.addEventListener("click", function () {
-      overlay.remove();
-      pick__call_deliver_msg(req_id, ok_code);
-    }, { once: true });
-    ok.focus();
-  } catch (e) { console.error("pick_js_bind_alert_handlers failed", e); }
+    var buttons = actions.querySelectorAll('[data-pick="button"]');
+    
+    for (var i = 0; i < buttons.length; i++) {
+      (function(idx) {
+        buttons[idx].addEventListener("click", function() {
+          overlay.remove();
+          pick__call_deliver_msg(req_id, idx);
+        }, { once: true });
+      })(i);
+    }
+    
+    if (buttons.length > 0) {
+      buttons[buttons.length - 1].focus();
+    }
+  } catch (e) { console.error("pick_js_bind_message_handlers failed", e); }
 });
-EM_JS(void, pick_js_bind_confirm_handlers, (int req_id, int ok_code, int cancel_code), {
-  try {
-    var overlay = document.querySelector('[data-pick="overlay"]:last-of-type');
-    if (!overlay) throw new Error("no overlay");
-    var actions = overlay.querySelector('[data-pick="actions"]');
-    var ok = actions.querySelector('[data-action="ok"]');
-    var cancel = actions.querySelector('[data-action="cancel"]');
-    if (!ok || !cancel) throw new Error("missing buttons");
-    ok.addEventListener("click", function () {
-      overlay.remove();
-      pick__call_deliver_msg(req_id, ok_code);
-    }, { once: true });
-    cancel.addEventListener("click", function () {
-      overlay.remove();
-      pick__call_deliver_msg(req_id, cancel_code);
-    }, { once: true });
-    cancel.focus();
-  } catch (e) { console.error("pick_js_bind_confirm_handlers failed", e); }
-});
-
 
 EM_JS(void, pick_js_import_files_to_memfs, (const char* base_c, int req_id, int is_multi), {
   (async function(){
@@ -1536,7 +1570,6 @@ EM_JS(void, pick_js_import_files_to_memfs, (const char* base_c, int req_id, int 
   })();
 });
 
-
 EM_JS(void, pick_js_open, (int req_id, const char* title_c,
                            int allow_dirs, int allow_files, int allow_multiple,
                            const char* accept_c,
@@ -1557,7 +1590,6 @@ EM_JS(void, pick_js_open, (int req_id, const char* title_c,
       var overlay = document.querySelector('[data-pick="overlay"]:last-of-type');
       var dialog  = overlay.querySelector('[data-pick="dialog"]');
 
-      // UI row
       var row  = document.createElement("div");
       row.setAttribute("data-pick", "row");
 
@@ -1579,7 +1611,6 @@ EM_JS(void, pick_js_open, (int req_id, const char* title_c,
       dialog.insertBefore(row, dialog.querySelector('[data-pick="actions"]'));
       dialog.insertBefore(list, dialog.querySelector('[data-pick="actions"]'));
 
-      // Actions
       pick_js_append_action("Cancel", "cancel");
       pick_js_append_action("Import", "ok");
 
@@ -1587,8 +1618,7 @@ EM_JS(void, pick_js_open, (int req_id, const char* title_c,
       var ok     = actions.querySelector('[data-action="ok"]');
       var cancel = actions.querySelector('[data-action="cancel"]');
 
-      // Selection state (can browse multiple times)
-      Module.__pickChosen = []; // [{ file: File, rel: string }]
+      Module.__pickChosen = [];
 
       function renderList() {
         list.replaceChildren();
@@ -1617,7 +1647,6 @@ EM_JS(void, pick_js_open, (int req_id, const char* title_c,
         try {
           if (allow_dirs) {
             const dir = await window.showDirectoryPicker({ mode: "read" });
-            // recursive walk
             async function* walk(rootHandle, prefix) {
               for await (const [name, handle] of rootHandle.entries()) {
                 const rel = prefix ? (prefix + "/" + name) : name;
@@ -1647,7 +1676,6 @@ EM_JS(void, pick_js_open, (int req_id, const char* title_c,
           renderList();
         } catch (err) {
           if (err && err.name === "AbortError") {
-            // user canceled browse; ignore
           } else {
             console.error("pick: FSA browse failed", err);
           }
@@ -1693,7 +1721,6 @@ EM_JS(void, pick_js_open, (int req_id, const char* title_c,
 
       ok.addEventListener("click", function(){
         overlay.remove();
-        // IMPORTANT: Only treat as multi if the API actually requested multi
         var is_multi = !!allow_multiple;
         pick_js_import_files_to_memfs("/picked", req_id, is_multi ? 1 : 0);
       }, { once: true });
@@ -1770,10 +1797,8 @@ EM_JS(void, pick_js_save, (int req_id, const char* title_c, const char* suggeste
 EM_JS(void, pick_js_export, (int req_id, const char* src_c, const char* suggested_c), {
   (async function(){
     try {
-      const OK = 0, CANCEL = 1;
-
       function S(x){ return (typeof x === "number") ? (x ? UTF8ToString(x) : "") : (x || ""); }
-      if (typeof FS === "undefined") { pick__call_deliver_msg(req_id, CANCEL); return; }
+      if (typeof FS === "undefined") { pick__call_deliver_msg(req_id, 1); return; }
 
       var src = S(src_c);
       var suggested = S(suggested_c);
@@ -1789,13 +1814,13 @@ EM_JS(void, pick_js_export, (int req_id, const char* src_c, const char* suggeste
           var writable = await handle.createWritable();
           await writable.write(new Blob([data], { type: "application/octet-stream" }));
           await writable.close();
-          pick__call_deliver_msg(req_id, OK);
+          pick__call_deliver_msg(req_id, 0);
         } catch (err) {
           if (err && err.name === "AbortError") {
-            pick__call_deliver_msg(req_id, CANCEL);
+            pick__call_deliver_msg(req_id, 1);
           } else {
             console.error("pick: export failed", err);
-            pick__call_deliver_msg(req_id, CANCEL);
+            pick__call_deliver_msg(req_id, 1);
           }
         }
       } else {
@@ -1805,11 +1830,11 @@ EM_JS(void, pick_js_export, (int req_id, const char* src_c, const char* suggeste
         a.href = url; a.download = suggested;
         document.body.appendChild(a); a.click();
         setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 0);
-        pick__call_deliver_msg(req_id, OK);
+        pick__call_deliver_msg(req_id, 0);
       }
     } catch (e) {
       console.error("pick_js_export failed", e);
-      pick__call_deliver_msg(req_id, 1 /* CANCEL */);
+      pick__call_deliver_msg(req_id, 1);
     }
   })();
 });
@@ -1836,10 +1861,10 @@ extern "C" {
 #endif
 
 EMSCRIPTEN_KEEPALIVE
-void pick__deliver_single(int id, const char* path /*nullable*/) {
+void pick__deliver_single(int id, const char* path) {
   if (id <= 0 || id >= PICK_EM_MAX_REQUESTS) return;
-  pick_em_req_t req = g_reqs[id];
-  pick_clear_req(id);
+  pick__em_req_t req = g_reqs[id];
+  pick__clear_req(id);
 
   switch (req.kind) {
     case PICK_REQ_OPEN_SINGLE:
@@ -1859,10 +1884,10 @@ void pick__deliver_single(int id, const char* path /*nullable*/) {
 }
 
 EMSCRIPTEN_KEEPALIVE
-void pick__deliver_multi_lines(int id, const char* lines /*nullable*/) {
+void pick__deliver_multi_lines(int id, const char* lines) {
   if (id <= 0 || id >= PICK_EM_MAX_REQUESTS) return;
-  pick_em_req_t req = g_reqs[id];
-  pick_clear_req(id);
+  pick__em_req_t req = g_reqs[id];
+  pick__clear_req(id);
 
   if (!lines || !*lines) {
     if (req.multi_cb) req.multi_cb(NULL, 0, req.user);
@@ -1870,7 +1895,6 @@ void pick__deliver_multi_lines(int id, const char* lines /*nullable*/) {
     return;
   }
 
-  // If this request expects a single result (e.g., pick_folder single), pass only the first path.
   if ((req.kind == PICK_REQ_OPEN_DIR_SINGLE || req.kind == PICK_REQ_OPEN_SINGLE) && req.single_cb) {
     const char* nl = strchr(lines, '\n');
     size_t len = nl ? (size_t)(nl - lines) : strlen(lines);
@@ -1902,20 +1926,47 @@ void pick__deliver_multi_lines(int id, const char* lines /*nullable*/) {
 }
 
 EMSCRIPTEN_KEEPALIVE
-void pick__deliver_msg(int id, int result_code) {
+void pick__deliver_msg(int id, int button_idx) {
   if (id <= 0 || id >= PICK_EM_MAX_REQUESTS) return;
-  pick_em_req_t req = g_reqs[id];
-  pick_clear_req(id);
+  pick__em_req_t req = g_reqs[id];
+  pick__clear_req(id);
 
   if (req.kind == PICK_REQ_MESSAGE) {
     if (req.msg_cb) {
-      PickButtonResult r = (result_code == PICK_EM_OK) ? PICK_RESULT_OK : PICK_RESULT_CANCEL;
-      req.msg_cb(r, req.user);
+      PickButtonResult result = PICK_RESULT_CLOSED;
+      
+      switch (req.button_type) {
+        case PICK_BUTTON_OK:
+          result = (button_idx == 0) ? PICK_RESULT_OK : PICK_RESULT_CLOSED;
+          break;
+          
+        case PICK_BUTTON_OK_CANCEL:
+          if (button_idx == 0) result = PICK_RESULT_CANCEL;
+          else if (button_idx == 1) result = PICK_RESULT_OK;
+          break;
+          
+        case PICK_BUTTON_YES_NO:
+          if (button_idx == 0) result = PICK_RESULT_NO;
+          else if (button_idx == 1) result = PICK_RESULT_YES;
+          break;
+          
+        case PICK_BUTTON_YES_NO_CANCEL:
+          if (button_idx == 0) result = PICK_RESULT_CANCEL;
+          else if (button_idx == 1) result = PICK_RESULT_NO;
+          else if (button_idx == 2) result = PICK_RESULT_YES;
+          break;
+          
+        default:
+          result = PICK_RESULT_CLOSED;
+          break;
+      }
+      
+      req.msg_cb(result, req.user);
     }
     return;
   }
   if (req.kind == PICK_REQ_EXPORT) {
-    if (req.result_cb) req.result_cb(result_code == PICK_EM_OK, req.user);
+    if (req.result_cb) req.result_cb(button_idx == 0, req.user);
     return;
   }
 }
@@ -1924,70 +1975,65 @@ void pick__deliver_msg(int id, int result_code) {
 }
 #endif
 
-
 void pick_file(const PickFileOptions *options, PickFileCallback cb, void *ud) {
   pick_js_init_buckets();
-  int id = pick_alloc_req(); if (!id) { if (cb) cb(NULL, ud); return; }
-  g_reqs[id] = (pick_em_req_t){ .kind = PICK_REQ_OPEN_SINGLE, .single_cb = cb, .user = ud };
+  int id = pick__alloc_req(); if (!id) { if (cb) cb(NULL, ud); return; }
+  g_reqs[id] = (pick__em_req_t){ .kind = PICK_REQ_OPEN_SINGLE, .single_cb = cb, .user = ud };
 
-  char accept[512]; pick_build_accept_string(options, accept, sizeof(accept));
+  char accept[512]; pick__build_accept_string(options, accept, sizeof(accept));
   const char* title = (options && options->title) ? options->title : "";
 
-  pick_js_open(id, title, /*allow_dirs*/0, /*allow_files*/1,
-               (options && options->allow_multiple) ? 1 : 0,
-               accept, /*with_icon*/1, "document", "");
+  pick_js_open(id, title, 0, 1, (options && options->allow_multiple) ? 1 : 0,
+               accept, 1, "document", "");
 }
 
 void pick_files(const PickFileOptions *options, PickMultiFileCallback cb, void *ud) {
   pick_js_init_buckets();
-  int id = pick_alloc_req(); if (!id) { if (cb) cb(NULL, 0, ud); return; }
-  g_reqs[id] = (pick_em_req_t){ .kind = PICK_REQ_OPEN_MULTI, .multi_cb = cb, .user = ud };
+  int id = pick__alloc_req(); if (!id) { if (cb) cb(NULL, 0, ud); return; }
+  g_reqs[id] = (pick__em_req_t){ .kind = PICK_REQ_OPEN_MULTI, .multi_cb = cb, .user = ud };
 
-  char accept[512]; pick_build_accept_string(options, accept, sizeof(accept));
+  char accept[512]; pick__build_accept_string(options, accept, sizeof(accept));
   const char* title = (options && options->title) ? options->title : "";
 
-  pick_js_open(id, title, /*dirs*/0, /*files*/1, /*multi*/1,
-               accept, /*with_icon*/1, "document", "");
+  pick_js_open(id, title, 0, 1, 1, accept, 1, "document", "");
 }
 
 void pick_folder(const PickFileOptions *options, PickFileCallback cb, void *ud) {
   pick_js_init_buckets();
-  int id = pick_alloc_req(); if (!id) { if (cb) cb(NULL, ud); return; }
-  g_reqs[id] = (pick_em_req_t){ .kind = PICK_REQ_OPEN_DIR_SINGLE, .single_cb = cb, .user = ud };
+  int id = pick__alloc_req(); if (!id) { if (cb) cb(NULL, ud); return; }
+  g_reqs[id] = (pick__em_req_t){ .kind = PICK_REQ_OPEN_DIR_SINGLE, .single_cb = cb, .user = ud };
 
   const char* title = (options && options->title) ? options->title : "";
 
-  pick_js_open(id, title, /*dirs*/1, /*files*/0, /*multi*/0,
-               /*accept*/"", /*with_icon*/1, "folder", "");
+  pick_js_open(id, title, 1, 0, 0, "", 1, "folder", "");
 }
 
 void pick_folders(const PickFileOptions *options, PickMultiFileCallback cb, void *ud) {
   pick_js_init_buckets();
-  int id = pick_alloc_req(); if (!id) { if (cb) cb(NULL, 0, ud); return; }
-  g_reqs[id] = (pick_em_req_t){ .kind = PICK_REQ_OPEN_DIR_MULTI, .multi_cb = cb, .user = ud };
+  int id = pick__alloc_req(); if (!id) { if (cb) cb(NULL, 0, ud); return; }
+  g_reqs[id] = (pick__em_req_t){ .kind = PICK_REQ_OPEN_DIR_MULTI, .multi_cb = cb, .user = ud };
 
   const char* title = (options && options->title) ? options->title : "";
 
-  pick_js_open(id, title, /*dirs*/1, /*files*/0, /*multi*/1,
-               /*accept*/"", /*with_icon*/1, "folder", "");
+  pick_js_open(id, title, 1, 0, 1, "", 1, "folder", "");
 }
 
 void pick_save(const PickFileOptions *options, PickFileCallback cb, void *ud) {
   pick_js_init_buckets();
-  int id = pick_alloc_req(); if (!id) { if (cb) cb(NULL, ud); return; }
-  g_reqs[id] = (pick_em_req_t){ .kind = PICK_REQ_SAVE, .single_cb = cb, .user = ud };
+  int id = pick__alloc_req(); if (!id) { if (cb) cb(NULL, ud); return; }
+  g_reqs[id] = (pick__em_req_t){ .kind = PICK_REQ_SAVE, .single_cb = cb, .user = ud };
 
   const char* title     = (options && options->title)        ? options->title        : "";
   const char* suggested = (options && options->default_name) ? options->default_name : "untitled";
 
-  pick_js_save(id, title, suggested, /*with_icon*/1, "document", "");
+  pick_js_save(id, title, suggested, 1, "document", "");
 }
 
 void pick_export_file(const char* src_path, const PickFileOptions* options,
                       PickResultCallback done, void* user) {
   pick_js_init_buckets();
-  int id = pick_alloc_req(); if (!id) { if (done) done(false, user); return; }
-  g_reqs[id] = (pick_em_req_t){ .kind = PICK_REQ_EXPORT, .result_cb = done, .user = user };
+  int id = pick__alloc_req(); if (!id) { if (done) done(false, user); return; }
+  g_reqs[id] = (pick__em_req_t){ .kind = PICK_REQ_EXPORT, .result_cb = done, .user = user };
 
   const char* suggested = (options && options->default_name) ? options->default_name : "";
   pick_js_export(id, src_path ? src_path : "", suggested);
@@ -2002,38 +2048,64 @@ static const char* pick_message_style_token(PickMessageStyle s) {
     default:                 return "info";
   }
 }
+
 void pick_message(const PickMessageOptions *opts, PickMessageCallback cb, void *ud) {
-  int id = pick_alloc_req(); if (!id) { if (cb) cb(PICK_RESULT_CLOSED, ud); return; }
-  g_reqs[id] = (pick_em_req_t){ .kind = PICK_REQ_MESSAGE, .msg_cb = cb, .user = ud };
+  int id = pick__alloc_req(); if (!id) { if (cb) cb(PICK_RESULT_CLOSED, ud); return; }
+  
+  PickButtonType btns = opts ? opts->buttons : PICK_BUTTON_OK;
+  g_reqs[id] = (pick__em_req_t){ 
+    .kind = PICK_REQ_MESSAGE, 
+    .msg_cb = cb, 
+    .user = ud,
+    .button_type = btns
+  };
 
   const char* title   = (opts && opts->title)   ? opts->title   : "";
   const char* message = (opts && opts->message) ? opts->message : "";
-  const char* iconTok = pick_icon_token(opts ? opts->icon_type : PICK_ICON_DEFAULT);
+  const char* iconTok = pick__icon_token(opts ? opts->icon_type : PICK_ICON_DEFAULT);
 
   char* custom_url = NULL;
   if (opts && opts->icon_type == PICK_ICON_CUSTOM && opts->icon_path && *opts->icon_path) {
     custom_url = pick_js_custom_icon_url(opts->icon_path);
   }
 
-  PickButtonType btns = opts ? opts->buttons : PICK_BUTTON_OK;
-  if (btns == PICK_BUTTON_OK_CANCEL || btns == PICK_BUTTON_YES_NO || btns == PICK_BUTTON_YES_NO_CANCEL) {
-    pick_js_create_dialog(id, "Confirmation", title, message, "confirm", 1, iconTok, custom_url ? custom_url : "");
-    pick_js_append_action("Cancel", "cancel");
-    pick_js_append_action((btns == PICK_BUTTON_YES_NO || btns == PICK_BUTTON_YES_NO_CANCEL) ? "Yes" : "OK", "ok");
-    pick_js_bind_confirm_handlers(id, /*ok*/PICK_EM_OK, /*cancel*/PICK_EM_CANCEL);
-  } else {
-    pick_js_create_dialog(id, "Alert", title, message, "alert", 1, iconTok, custom_url ? custom_url : "");
-    pick_js_append_action("OK", "ok");
-    pick_js_bind_alert_handlers(id, /*ok*/PICK_EM_OK);
+  pick_js_create_dialog(id, "Dialog", title, message, pick_message_style_token(opts ? opts->style : PICK_STYLE_INFO), 
+                        1, iconTok, custom_url ? custom_url : "");
+
+  switch (btns) {
+    case PICK_BUTTON_OK:
+      pick_js_append_action("OK", "ok");
+      break;
+      
+    case PICK_BUTTON_OK_CANCEL:
+      pick_js_append_action("Cancel", "cancel");
+      pick_js_append_action("OK", "ok");
+      break;
+      
+    case PICK_BUTTON_YES_NO:
+      pick_js_append_action("No", "no");
+      pick_js_append_action("Yes", "yes");
+      break;
+      
+    case PICK_BUTTON_YES_NO_CANCEL:
+      pick_js_append_action("Cancel", "cancel");
+      pick_js_append_action("No", "no");
+      pick_js_append_action("Yes", "yes");
+      break;
   }
+
+  int button_count = (btns == PICK_BUTTON_OK) ? 1 : 
+                     (btns == PICK_BUTTON_OK_CANCEL || btns == PICK_BUTTON_YES_NO) ? 2 : 3;
+  pick_js_bind_message_handlers(id, button_count);
 
   if (custom_url) { free(custom_url); }
 }
 
 void pick_alert(const char *title, const char *message, void *parent_handle) {
   (void)parent_handle;
-  PickMessageOptions o = (PickMessageOptions){0};
-  o.title = title; o.message = message;
+  PickMessageOptions o = {0};
+  o.title = title; 
+  o.message = message;
   o.buttons = PICK_BUTTON_OK;
   o.style = PICK_STYLE_INFO;
   o.icon_type = PICK_ICON_DEFAULT;
@@ -2043,16 +2115,16 @@ void pick_alert(const char *title, const char *message, void *parent_handle) {
 void pick_confirm(const char *title, const char *message, void *parent_handle,
                   PickMessageCallback callback, void *user_data) {
   (void)parent_handle;
-  PickMessageOptions o = (PickMessageOptions){0};
-  o.title = title; o.message = message;
+  PickMessageOptions o = {0};
+  o.title = title; 
+  o.message = message;
   o.buttons = PICK_BUTTON_OK_CANCEL;
   o.style = PICK_STYLE_QUESTION;
   o.icon_type = PICK_ICON_DEFAULT;
   pick_message(&o, callback, user_data);
 }
 
-#endif /* PICK_PLATFORM_EMSCRIPTEN */
-
+#endif
 
 void pick_free(char *path) { free(path); }
 
